@@ -1,0 +1,96 @@
+// ---------------------------------------------------
+//  Prisma configuration
+// ---------------------------------------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------
+//  MODELS (Database Tables)
+// ---------------------------------------------------
+
+// 🧍 Utilisateurs
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  name      String
+  orders    Order[]
+  reviews   Review[]
+  createdAt DateTime  @default(now())
+}
+
+// 🛒 Produits
+model Product {
+  id          Int        @id @default(autoincrement())
+  name        String
+  description String
+  price       Float
+  stock       Int
+  category    String
+  reviews     Review[]
+  items       OrderItem[]
+  createdAt   DateTime   @default(now())
+}
+
+// 📦 Commandes
+model Order {
+  id         Int         @id @default(autoincrement())
+  user       User        @relation(fields: [userId], references: [id])
+  userId     Int
+  items      OrderItem[]
+  status     String      @default("pending")
+  total      Float
+  delivery   Delivery?
+  payment    Payment?    // 👈 relation vers Payment (ajouté)
+  createdAt  DateTime    @default(now())
+}
+
+// 🧾 Détails des items d’une commande
+model OrderItem {
+  id        Int      @id @default(autoincrement())
+  order     Order    @relation(fields: [orderId], references: [id])
+  orderId   Int
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  quantity  Int
+  price     Float
+}
+
+// ⭐ Avis des utilisateurs
+model Review {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  product   Product  @relation(fields: [productId], references: [id])
+  productId Int
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+}
+
+// 💳 Paiements
+model Payment {
+  id        Int      @id @default(autoincrement())
+  order     Order    @relation(fields: [orderId], references: [id])
+  orderId   Int      @unique   // 👈 chaque commande a au max 1 paiement
+  amount    Float
+  status    String   @default("processing")
+  createdAt DateTime @default(now())
+}
+
+// 🚚 Livraison
+model Delivery {
+  id          Int     @id @default(autoincrement())
+  order       Order   @relation(fields: [orderId], references: [id])
+  orderId     Int     @unique
+  status      String  @default("preparing") // preparing → shipping → delivered
+  address     String?
+  estimatedAt DateTime?
+  updatedAt   DateTime @updatedAt
+}
