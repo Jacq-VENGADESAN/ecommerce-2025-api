@@ -4,7 +4,8 @@ import { useCart } from "../context/CartContext";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
-  const [recommended, setRecommended] = useState([]); // ← AJOUT
+  const [recommended, setRecommended] = useState([]); 
+  const [topRated, setTopRated] = useState([]); // ← NOUVEAU
   const { addToCart } = useCart();
 
   useEffect(() => {
@@ -23,6 +24,9 @@ export default function ProductsPage() {
         if (res.data.products) {
           setRecommended(res.data.products);
         }
+        if (res.data.topRated) {
+          setTopRated(res.data.topRated);
+        }
       })
       .catch((err) => console.error("Erreur recommandations", err));
   }, []);
@@ -30,22 +34,19 @@ export default function ProductsPage() {
   return (
     <div style={{ padding: "20px" }}>
       <h1>Catalogue de produits</h1>
-      {products.length === 0 && <p>Aucun produit pour le moment.</p>}
 
+      {/* --- PRODUITS --- */}
+      {products.length === 0 && <p>Aucun produit pour le moment.</p>}
       <ul>
         {products.map((p) => (
           <li key={p.id} style={{ marginBottom: "10px" }}>
             <strong>{p.name}</strong> — {p.price} €
-
-            {/* Bouton ajouter au panier */}
             <button
               style={{ marginLeft: "10px" }}
               onClick={() => addToCart(p)}
             >
               Ajouter au panier
             </button>
-
-            {/* Bouton voir le détail */}
             <a
               href={`/product?id=${p.id}`}
               style={{ marginLeft: "10px", color: "blue" }}
@@ -56,18 +57,30 @@ export default function ProductsPage() {
         ))}
       </ul>
 
-      {/* SECTION RECOMMANDATIONS */}
+      {/* --- RECOMMANDATIONS --- */}
       <h2 style={{ marginTop: "40px" }}>Recommandations pour vous</h2>
-
-      {recommended.length === 0 && (
-        <p>Aucune recommandation pour le moment.</p>
-      )}
-
+      {recommended.length === 0 && <p>Aucune recommandation pour le moment.</p>}
       <ul>
         {recommended.map((prod) => (
           <li key={prod.id} style={{ marginBottom: "10px" }}>
             <strong>{prod.name}</strong> — {prod.price} €
+            <a
+              href={`/product?id=${prod.id}`}
+              style={{ marginLeft: "10px", color: "blue" }}
+            >
+              Voir le détail
+            </a>
+          </li>
+        ))}
+      </ul>
 
+      {/* --- TOP RATED --- */}
+      <h2 style={{ marginTop: "40px" }}>⭐ Produits les mieux notés</h2>
+      {topRated.length === 0 && <p>Aucun produit bien noté pour le moment.</p>}
+      <ul>
+        {topRated.map((prod) => (
+          <li key={prod.id} style={{ marginBottom: "10px" }}>
+            <strong>{prod.name}</strong> — {prod.price} €
             <a
               href={`/product?id=${prod.id}`}
               style={{ marginLeft: "10px", color: "blue" }}
