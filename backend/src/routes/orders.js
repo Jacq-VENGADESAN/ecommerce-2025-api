@@ -8,75 +8,75 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 /**
- * POST /orders
- * Créer une commande pour l'utilisateur connecté
- * Body attendu :
- * {
- *   "items": [
- *     { "productId": 1, "quantity": 2 },
- *     { "productId": 3, "quantity": 1 }
- *   ]
- * }
+ * Créer une commande
+ * - Vérifie que les produits existent
+ * - Vérifie le stock
+ * - Calcule le total
+ * - Crée Order + OrderItems
+ * - Décrémente le stock
+ * - Crée Payment + Delivery
  */
 router.post("/", authMiddleware, async (req, res) => {
   try {
-    const userId = req.userId;
     const { items } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res
         .status(400)
-        .json({ error: "Le corps de la requête doit contenir un tableau 'items' non vide." });
+        .json({ error: "La commande doit contenir au moins un produit." });
     }
 
-    // Récupérer les produits concernés
     const productIds = items.map((i) => i.productId);
+
+    // Récupérer tous les produits concernés
     const products = await prisma.product.findMany({
-      where: {
-        id: { in: productIds },
-      },
+      where: { id: { in: productIds } },
     });
 
-    if (products.length !== items.length) {
-      return res.status(400).json({ error: "Certains produits n'existent pas." });
+    if (products.length !== productIds.length) {
+      return res
+        .status(400)
+        .json({ error: "Certains produits n'existent pas." });
     }
 
-    // Calcul du total + vérif du stock
+    // Vérifier le stock et calculer le total
     let total = 0;
+
     for (const item of items) {
       const product = products.find((p) => p.id === item.productId);
-      if (!product) continue;
+      if (!product) {
+        return res
+          .status(400)
+          .json({ error: `Produit ${item.productId} introuvable.` });
+      }
 
       if (product.stock < item.quantity) {
         return res.status(400).json({
-          error: `Stock insuffisant pour le produit ID ${product.id} (${product.name}).`,
+          error: `Stock insuffisant pour le produit ${product.name}.`,
         });
       }
 
       total += product.price * item.quantity;
     }
 
-    // Création de la commande + items dans une transaction
+    // Transaction : créer la commande + items + paiement + livraison + décrémenter le stock
     const order = await prisma.$transaction(async (tx) => {
-      const newOrder = await tx.order.create({
+      const createdOrder = await tx.order.create({
         data: {
-          userId,
+          userId: req.userId,
           status: "pending",
           total,
           items: {
             create: items.map((item) => ({
               productId: item.productId,
               quantity: item.quantity,
-              price: products.find((p) => p.id === item.productId)?.price ?? 0,
+              price: products.find((p) => p.id === item.productId).price,
             })),
           },
         },
-        include: {
-          items: true,
-        },
       });
 
-      // Mise à jour des stocks
+      // Décrémenter le stock de chaque produit
       for (const item of items) {
         await tx.product.update({
           where: { id: item.productId },
@@ -88,23 +88,32 @@ router.post("/", authMiddleware, async (req, res) => {
         });
       }
 
-      // Création d'un "Payment" associé (status = processing)
+      // Créer le paiement (simulé)
       await tx.payment.create({
         data: {
-          orderId: newOrder.id,
+          orderId: createdOrder.id,
           amount: total,
+          status: "processing",
         },
       });
 
-      // Création d'une "Delivery" associée (status = preparing)
+      // Créer la livraison (simulée)
       await tx.delivery.create({
         data: {
-          orderId: newOrder.id,
+          orderId: createdOrder.id,
           status: "preparing",
         },
       });
 
-      return newOrder;
+      // Renvoyer la commande complète
+      return tx.order.findUnique({
+        where: { id: createdOrder.id },
+        include: {
+          items: { include: { product: true } },
+          payment: true,
+          delivery: true,
+        },
+      });
     });
 
     res.status(201).json(order);
@@ -115,27 +124,18 @@ router.post("/", authMiddleware, async (req, res) => {
 });
 
 /**
- * GET /orders/me
  * Récupérer les commandes de l'utilisateur connecté
  */
 router.get("/me", authMiddleware, async (req, res) => {
   try {
-    const userId = req.userId;
-
     const orders = await prisma.order.findMany({
-      where: { userId },
+      where: { userId: req.userId },
       include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-        delivery: true,
+        items: { include: { product: true } },
         payment: true,
+        delivery: true,
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
     res.json(orders);
@@ -146,36 +146,82 @@ router.get("/me", authMiddleware, async (req, res) => {
 });
 
 /**
- * GET /orders/:id
- * Récupérer le détail d'une commande (si elle appartient à l'utilisateur connecté)
+ * Annuler une commande (et recréditer le stock)
  */
-router.get("/:id", authMiddleware, async (req, res) => {
+router.patch("/:id/cancel", authMiddleware, async (req, res) => {
   try {
-    const userId = req.userId;
     const id = parseInt(req.params.id, 10);
+
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "ID invalide." });
+    }
 
     const order = await prisma.order.findUnique({
       where: { id },
-      include: {
-        items: {
-          include: { product: true },
-        },
-        delivery: true,
-        payment: true,
-      },
+      include: { items: true, payment: true, delivery: true },
     });
 
     if (!order) {
       return res.status(404).json({ error: "Commande introuvable." });
     }
 
-    if (order.userId !== userId) {
-      return res.status(403).json({ error: "Accès refusé à cette commande." });
+    if (order.userId !== req.userId) {
+      return res.status(403).json({ error: "Accès non autorisé." });
     }
 
-    res.json(order);
+    if (order.status === "cancelled") {
+      return res.status(400).json({ error: "Commande déjà annulée." });
+    }
+
+    if (order.status !== "pending") {
+      return res.status(400).json({
+        error: "Seules les commandes en attente peuvent être annulées.",
+      });
+    }
+
+    // Transaction : remettre le stock + changer les statuts
+    const updated = await prisma.$transaction(async (tx) => {
+      // Réincrémenter le stock
+      for (const item of order.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            stock: {
+              increment: item.quantity,
+            },
+          },
+        });
+      }
+
+      // Mettre à jour la commande
+      const cancelledOrder = await tx.order.update({
+        where: { id },
+        data: { status: "cancelled" },
+        include: { items: true, payment: true, delivery: true },
+      });
+
+      // Mettre à jour le paiement (simulé)
+      if (order.payment) {
+        await tx.payment.update({
+          where: { id: order.payment.id },
+          data: { status: "cancelled" },
+        });
+      }
+
+      // Mettre à jour la livraison (simulée)
+      if (order.delivery) {
+        await tx.delivery.update({
+          where: { id: order.delivery.id },
+          data: { status: "cancelled" },
+        });
+      }
+
+      return cancelledOrder;
+    });
+
+    res.json(updated);
   } catch (error) {
-    console.error("Erreur GET /orders/:id :", error);
+    console.error("Erreur PATCH /orders/:id/cancel :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });

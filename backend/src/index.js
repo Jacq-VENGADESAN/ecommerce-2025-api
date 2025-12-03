@@ -1,5 +1,5 @@
 // backend/src/index.js
-
+const bcrypt = require("bcryptjs");
 const setupSwagger = require("./swagger");
 const recommendationsRouter = require("./routes/recommendations");
 const geoRouter = require("./routes/geo");
@@ -75,6 +75,43 @@ app.get("/products", async (req, res) => {
   }
 });
 
+// Modifier son profil
+app.put("/me", authMiddleware, async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    const data = {};
+
+    if (name) data.name = name;
+    if (email) data.email = email;
+
+    if (password) {
+      const hashed = await bcrypt.hash(password, 10);
+      data.password = hashed;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: "Aucun champ à mettre à jour." });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.userId },
+      data,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+      },
+    });
+
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Erreur PUT /me :", error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
 // Récupérer un produit par son id
 app.get("/products/:id", async (req, res) => {
   try {
@@ -136,6 +173,20 @@ app.put("/products/:id", async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error("Erreur PUT /products/:id :", error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Supprimer son compte
+app.delete("/me", authMiddleware, async (req, res) => {
+  try {
+    await prisma.user.delete({
+      where: { id: req.userId },
+    });
+
+    res.json({ message: "Compte supprimé avec succès." });
+  } catch (error) {
+    console.error("Erreur DELETE /me :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
