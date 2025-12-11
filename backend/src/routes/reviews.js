@@ -3,45 +3,22 @@
 const express = require("express");
 const authMiddleware = require("../middlewares/authMiddleware");
 const prisma = require("../prisma");
+const { validateId, sanitizeComment, requireNumber } = require("../utils/validation");
 
 const router = express.Router();
 
 /**
  * POST /reviews
- * Body :
- * {
- *   "productId": 1,
- *   "rating": 4,
- *   "comment": "Très bon produit"
- * }
  */
 router.post("/", authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
     const { productId, rating, comment } = req.body;
 
-    if (!productId || !rating || !comment) {
-      return res.status(400).json({
-        error: "productId, rating et comment sont obligatoires.",
-      });
-    }
+    const parsedProductId = validateId(productId);
+    const parsedRating = requireNumber(parseInt(rating, 10), { min: 1, max: 5, field: "rating" });
+    const safeComment = sanitizeComment(comment);
 
-    if (typeof comment !== "string" || comment.trim().length < 3 || comment.trim().length > 500) {
-      return res.status(400).json({ error: "Le commentaire doit contenir entre 3 et 500 caractères." });
-    }
-
-    const parsedProductId = parseInt(productId, 10);
-    const parsedRating = parseInt(rating, 10);
-
-    if (isNaN(parsedProductId) || isNaN(parsedRating)) {
-      return res.status(400).json({ error: "productId et rating doivent être des nombres." });
-    }
-
-    if (parsedRating < 1 || parsedRating > 5) {
-      return res.status(400).json({ error: "rating doit être entre 1 et 5." });
-    }
-
-    // Vérifier que le produit existe
     const product = await prisma.product.findUnique({
       where: { id: parsedProductId },
     });
@@ -55,12 +32,15 @@ router.post("/", authMiddleware, async (req, res) => {
         userId,
         productId: parsedProductId,
         rating: parsedRating,
-        comment,
+        comment: safeComment,
       },
     });
 
     res.status(201).json(review);
   } catch (error) {
+    if (error.message?.includes("ID invalide") || error.message?.includes("doit")) {
+      return res.status(400).json({ error: error.message });
+    }
     console.error("Erreur POST /reviews :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -68,15 +48,10 @@ router.post("/", authMiddleware, async (req, res) => {
 
 /**
  * GET /products/:id/reviews
- * Récupérer les avis d'un produit
  */
 router.get("/product/:id", async (req, res) => {
   try {
-    const productId = parseInt(req.params.id, 10);
-
-    if (isNaN(productId)) {
-      return res.status(400).json({ error: "ID produit invalide." });
-    }
+    const productId = validateId(req.params.id);
 
     const reviews = await prisma.review.findMany({
       where: { productId },
@@ -92,6 +67,9 @@ router.get("/product/:id", async (req, res) => {
 
     res.json(reviews);
   } catch (error) {
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID produit invalide." });
+    }
     console.error("Erreur GET /reviews/product/:id :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -99,16 +77,11 @@ router.get("/product/:id", async (req, res) => {
 
 /**
  * DELETE /reviews/:id
- * Supprimer un avis (uniquement par son auteur)
  */
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const reviewId = parseInt(req.params.id, 10);
+    const reviewId = validateId(req.params.id);
     const userId = req.userId;
-
-    if (isNaN(reviewId)) {
-      return res.status(400).json({ error: "ID d'avis invalide." });
-    }
 
     const review = await prisma.review.findUnique({
       where: { id: reviewId },
@@ -126,8 +99,11 @@ router.delete("/:id", authMiddleware, async (req, res) => {
       where: { id: reviewId },
     });
 
-    res.json({ message: "Avis supprimé avec succès." });
+    res.json({ message: "Avis supprime avec succes." });
   } catch (error) {
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID d'avis invalide." });
+    }
     console.error("Erreur DELETE /reviews/:id :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }

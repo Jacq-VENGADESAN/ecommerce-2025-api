@@ -21,85 +21,77 @@ export default function GeoPage() {
     try {
       setLoading(true);
 
-      // 1) On récupère lat/lon avec /geo/search
-      const searchRes = await axiosClient.get("/geo/search", {
-        params: { query },
-      });
-
+      const searchRes = await axiosClient.get("/geo/search", { params: { query } });
       const loc = searchRes.data;
       setLocation(loc);
 
-      // 2) On récupère les points de retrait avec /geo/pickup
       const pickupRes = await axiosClient.get("/geo/pickup", {
-        params: {
-          lat: loc.lat,
-          lon: loc.lon,
-        },
+        params: { lat: loc.lat, lon: loc.lon },
       });
 
       setPickups(pickupRes.data);
-
       if (pickupRes.data.length === 0) {
         setMessage("Aucun point de retrait trouvé à proximité.");
       }
     } catch (error) {
       console.error("Erreur GeoPage :", error);
-      setMessage(
-        error.response?.data?.error ||
-          "Erreur lors de la recherche des points de retrait."
-      );
+      setMessage(error.response?.data?.error || "Erreur lors de la recherche des points de retrait.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Points de retrait proches</h1>
-
-      <form onSubmit={handleSearch} style={{ marginBottom: "15px" }}>
-        <label>
-          Ville ou adresse :{" "}
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ marginRight: "10px" }}
-          />
-        </label>
-        <button type="submit" disabled={loading}>
-          {loading ? "Recherche..." : "Rechercher"}
-        </button>
-      </form>
-
-      {message && <p style={{ color: "red" }}>{message}</p>}
+    <div className="page">
+      <div className="page-title">Points de retrait</div>
+      <div className="card">
+        <form onSubmit={handleSearch} className="form">
+          <div className="form-group">
+            <label className="form-label">Ville ou adresse</label>
+            <input
+              className="form-input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Paris, Marseille, Lyon..."
+            />
+          </div>
+          <button className="btn btn-primary" type="submit" disabled={loading}>
+            {loading ? "Recherche..." : "Rechercher"}
+          </button>
+          {message && <p className="message">{message}</p>}
+        </form>
+      </div>
 
       {location && (
-        <p>
-          Position trouvée : <strong>{location.display_name}</strong>
-          <br />
-          (lat: {location.lat}, lon: {location.lon})
-        </p>
+        <div className="card">
+          <div className="section-title">Position trouvée</div>
+          <p>
+            <strong>{location.display_name}</strong>
+          </p>
+          <p className="muted">
+            lat: {location.lat}, lon: {location.lon}
+          </p>
+        </div>
       )}
 
       {pickups.length > 0 && (
-        <>
-          <h2>Points de retrait à proximité</h2>
-          <ul>
+        <div className="card">
+          <div className="section-title">Points de retrait à proximité</div>
+          <ul className="list">
             {pickups.map((p, index) => (
-              <li key={index} style={{ marginBottom: "8px" }}>
+              <li key={index} className="card" style={{ padding: 12 }}>
                 <strong>{p.display_name}</strong>
                 {p.address && (
-                  <>
-                    <br />
+                  <div className="muted">
                     {p.address.road && `${p.address.road}, `}
                     {p.address.postcode && `${p.address.postcode} `}
-                    {p.address.city || p.address.town || p.address.village}
-                  </>
+                    {p.address.city || p.address.town || p.address.village || ""}
+                  </div>
                 )}
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
     </div>
   );

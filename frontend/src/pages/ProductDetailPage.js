@@ -16,19 +16,15 @@ export default function ProductDetailPage() {
   useEffect(() => {
     if (!productId) return;
 
-    // Charger le produit
     axiosClient
       .get(`/products/${productId}`)
       .then((res) => setProduct(res.data))
       .catch(() => setMessage("Produit introuvable."));
 
-    // Charger les avis
     axiosClient
       .get(`/reviews/product/${productId}`)
       .then((res) => setReviews(res.data))
-      .catch((err) => {
-        console.error("Erreur avis :", err);
-      });
+      .catch((err) => console.error("Erreur avis :", err));
   }, [productId]);
 
   async function handleAddReview(e) {
@@ -37,111 +33,101 @@ export default function ProductDetailPage() {
 
     try {
       const body = {
-        productId: parseInt(productId),
+        productId: parseInt(productId, 10),
         rating,
         comment,
       };
 
       const res = await axiosClient.post("/reviews", body);
 
-      setReviews([res.data, ...reviews]); // on ajoute l'avis au début
+      setReviews([res.data, ...reviews]);
       setComment("");
       setRating(5);
       setMessage("Avis ajouté !");
     } catch (error) {
       console.error(error);
-      setMessage(
-        error.response?.data?.error ||
-          "Erreur lors de l'ajout de l'avis. Êtes-vous connecté ?"
-      );
+      setMessage(error.response?.data?.error || "Erreur lors de l'ajout de l'avis. Êtes-vous connecté ?");
     }
   }
 
   if (!product) {
     return (
-      <div style={{ padding: "20px" }}>
-        <p>Chargement du produit...</p>
+      <div className="page">
+        <p className="muted">Chargement du produit...</p>
       </div>
     );
   }
 
-  // Calcul de la note moyenne
   const average =
     reviews.length > 0
-      ? (
-          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-        ).toFixed(1)
+      ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
       : "Aucune note";
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>{product.name}</h1>
-      <p>
-        <strong>Prix :</strong> {product.price} €
-      </p>
-      <p>
-        <strong>Stock :</strong> {product.stock}
-      </p>
-      <p>{product.description}</p>
+    <div className="page">
+      <div className="card">
+        <div className="page-title">{product.name}</div>
+        <p className="muted">{product.category}</p>
+        <div className="product-price">{product.price} €</div>
+        <p>{product.description}</p>
+        <div className="inline">
+          <span className="pill">Stock : {product.stock}</span>
+          <span className="pill">Note moyenne : {average}</span>
+        </div>
+        <div className="product-actions" style={{ marginTop: 14 }}>
+          <button className="btn btn-primary" onClick={() => addToCart(product)}>
+            Ajouter au panier
+          </button>
+        </div>
+      </div>
 
-      <button onClick={() => addToCart(product)}>Ajouter au panier</button>
+      <div className="card">
+        <div className="section-title">Avis ({reviews.length})</div>
+        <form onSubmit={handleAddReview} className="form" style={{ marginBottom: 12 }}>
+          <div className="form-group">
+            <label className="form-label">Note</label>
+            <select
+              className="form-select"
+              value={rating}
+              onChange={(e) => setRating(parseInt(e.target.value, 10))}
+            >
+              {[5, 4, 3, 2, 1].map((n) => (
+                <option key={n} value={n}>
+                  {n} ★
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Commentaire</label>
+            <textarea
+              className="form-textarea"
+              rows="3"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Votre avis..."
+            />
+          </div>
+          <button className="btn btn-primary" type="submit">
+            Ajouter un avis
+          </button>
+          {message && <p className="message">{message}</p>}
+        </form>
 
-      <h2 style={{ marginTop: "30px" }}>Avis ({reviews.length})</h2>
-      <p>Note moyenne : {average} ⭐</p>
-
-      {message && <p style={{ color: "green" }}>{message}</p>}
-
-      {/* Formulaire d'ajout d'avis */}
-      <form onSubmit={handleAddReview} style={{ marginTop: "15px" }}>
-        <label>
-          Note :
-          <select
-            value={rating}
-            onChange={(e) => setRating(parseInt(e.target.value))}
-            style={{ marginLeft: "10px" }}
-          >
-            <option value="5">5 ⭐</option>
-            <option value="4">4 ⭐</option>
-            <option value="3">3 ⭐</option>
-            <option value="2">2 ⭐</option>
-            <option value="1">1 ⭐</option>
-          </select>
-        </label>
-
-        <br /><br />
-
-        <textarea
-          placeholder="Votre commentaire"
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          rows="3"
-          cols="40"
-        />
-
-        <br /><br />
-
-        <button type="submit">Ajouter un avis</button>
-      </form>
-
-      <ul style={{ marginTop: "20px" }}>
-        {reviews.map((r) => (
-          <li
-            key={r.id}
-            style={{
-              borderBottom: "1px solid #ccc",
-              paddingBottom: "10px",
-              marginBottom: "10px",
-            }}
-          >
-            <strong>{r.rating} ⭐</strong> — {r.comment}
-            <br />
-            <small>
-              Par {r.user?.name || "Utilisateur"} —{" "}
-              {new Date(r.createdAt).toLocaleDateString()}
-            </small>
-          </li>
-        ))}
-      </ul>
+        <ul className="list">
+          {reviews.map((r) => (
+            <li key={r.id} className="card" style={{ padding: 12 }}>
+              <div className="inline" style={{ justifyContent: "space-between" }}>
+                <strong>{r.rating} ★</strong>
+                <span className="muted">
+                  {new Date(r.createdAt).toLocaleDateString()} · {r.user?.name || "Utilisateur"}
+                </span>
+              </div>
+              <p>{r.comment}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

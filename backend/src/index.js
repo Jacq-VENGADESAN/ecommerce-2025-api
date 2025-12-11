@@ -4,9 +4,11 @@ const express = require("express");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
+const helmet = require("helmet");
 
 const setupSwagger = require("./swagger");
 const prisma = require("./prisma");
+const { validateId, requireString, requireNumber, requireEmail } = require("./utils/validation");
 
 const recommendationsRouter = require("./routes/recommendations");
 const geoRouter = require("./routes/geo");
@@ -17,38 +19,32 @@ const ordersRouter = require("./routes/orders");
 const authMiddleware = require("./middlewares/authMiddleware");
 const adminMiddleware = require("./middlewares/adminMiddleware");
 
+if (!process.env.JWT_SECRET || !process.env.DATABASE_URL) {
+  throw new Error("Variables d'environnement manquantes (JWT_SECRET, DATABASE_URL)");
+}
+
 const app = express();
 
-// ------------------------------------
-// CORS sécurisé
-// ------------------------------------
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  // Ajouter votre domaine de production ici
-];
-
+// CORS
+const allowedOrigins = ["http://localhost:3000", "http://localhost:3001"];
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error("Non autorisé par CORS"));
+      callback(new Error("Non autorise par CORS"));
     }
   },
   credentials: true,
   optionsSuccessStatus: 200,
 };
-
 app.use(cors(corsOptions));
 
-// ------------------------------------
 // Rate limiting
-// ------------------------------------
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: { error: "Trop de tentatives. Veuillez réessayer dans 15 minutes." },
+  message: { error: "Trop de tentatives. Veuillez reessayer dans 15 minutes." },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -56,25 +52,40 @@ const authLimiter = rateLimit({
 const orderLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
-  message: { error: "Trop de commandes créées. Veuillez patienter." },
+  message: { error: "Trop de commandes creees. Veuillez patienter." },
 });
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: { error: "Trop de requêtes. Veuillez ralentir." },
+  message: { error: "Trop de requetes. Veuillez ralentir." },
 });
 
 app.use(generalLimiter);
-
-// ------------------------------------
-// Middlewares globaux
-// ------------------------------------
 app.use(express.json({ limit: "1mb" }));
+app.disable("x-powered-by");
+app.use(helmet());
 
-// ------------------------------------
+// Refuser les Content-Type non JSON (sauf GET/HEAD/OPTIONS) et gérer Accept
+app.use((req, res, next) => {
+  const method = req.method.toUpperCase();
+  const contentType = req.headers["content-type"];
+  const accept = req.headers["accept"];
+
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    if (!contentType || !contentType.includes("application/json")) {
+      return res.status(415).json({ error: "Content-Type doit être application/json" });
+    }
+  }
+
+  if (accept && !accept.includes("application/json") && accept !== "*/*") {
+    return res.status(406).json({ error: "Format non supporté. Utilisez application/json" });
+  }
+
+  next();
+});
+
 // Routes
-// ------------------------------------
 app.use("/auth", authLimiter, authRouter);
 app.use("/orders", orderLimiter, ordersRouter);
 app.use("/reviews", reviewsRouter);
@@ -83,12 +94,12 @@ app.use("/recommendations", recommendationsRouter);
 
 setupSwagger(app);
 
-// Santé
+// Health
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Backend is running." });
 });
 
-// Profil utilisateur (protégé)
+// Profil utilisateur
 app.get("/me", authMiddleware, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -97,7 +108,7 @@ app.get("/me", authMiddleware, async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: "Utilisateur non trouvé." });
+      return res.status(404).json({ error: "Utilisateur non trouve." });
     }
 
     res.json(user);
@@ -111,13 +122,13 @@ app.get("/me", authMiddleware, async (req, res) => {
  * @swagger
  * /products:
  *   get:
- *     summary: Récupère tous les produits du catalogue
+ *     summary: Recupere tous les produits du catalogue
  *     tags: [Produits]
  *     responses:
  *       200:
  *         description: Liste des produits
  */
-app.get("/products", async (req, res) => {
+app.get("/products", async (_req, res) => {
   try {
     const products = await prisma.product.findMany();
     res.json(products);
@@ -129,20 +140,18 @@ app.get("/products", async (req, res) => {
 
 app.get("/products/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "ID invalide" });
-    }
+    const id = validateId(req.params.id);
 
     const product = await prisma.product.findUnique({ where: { id } });
-
     if (!product) {
       return res.status(404).json({ error: "Produit introuvable" });
     }
 
     res.json(product);
   } catch (error) {
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID invalide" });
+    }
     console.error("Erreur GET /products/:id :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -153,32 +162,27 @@ app.post("/products", authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { name, description, price, stock, category } = req.body;
 
-    if (!name || !description || price == null || stock == null || !category) {
-      return res.status(400).json({
-        error: "Tous les champs sont obligatoires (name, description, price, stock, category).",
-      });
-    }
-
-    if (typeof price !== "number" || price <= 0) {
-      return res.status(400).json({ error: "Le prix doit être un nombre positif." });
-    }
-
-    if (typeof stock !== "number" || stock < 0) {
-      return res.status(400).json({ error: "Le stock doit être un nombre positif ou zéro." });
-    }
+    const safeName = requireString(name, 2, 200, "name");
+    const safeDescription = requireString(description, 5, 2000, "description");
+    const safeCategory = requireString(category, 2, 120, "category");
+    const safePrice = requireNumber(price, { min: 0.01, max: 1_000_000, field: "price" });
+    const safeStock = requireNumber(stock, { min: 0, max: 1_000_000, field: "stock" });
 
     const product = await prisma.product.create({
       data: {
-        name,
-        description,
-        price: parseFloat(price),
-        stock: parseInt(stock, 10),
-        category,
+        name: safeName,
+        description: safeDescription,
+        price: parseFloat(safePrice),
+        stock: parseInt(safeStock, 10),
+        category: safeCategory,
       },
     });
 
     res.status(201).json(product);
   } catch (error) {
+    if (error.message?.includes("doit")) {
+      return res.status(400).json({ error: error.message });
+    }
     console.error("Erreur POST /products :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -186,31 +190,18 @@ app.post("/products", authMiddleware, adminMiddleware, async (req, res) => {
 
 app.put("/products/:id", authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "ID invalide" });
-    }
-
+    const id = validateId(req.params.id);
     const { name, description, price, stock, category } = req.body;
+
     const data = {};
-    if (name !== undefined) data.name = name;
-    if (description !== undefined) data.description = description;
-    if (price !== undefined) {
-      if (typeof price !== "number" || price <= 0) {
-        return res.status(400).json({ error: "Le prix doit être un nombre positif." });
-      }
-      data.price = parseFloat(price);
-    }
-    if (stock !== undefined) {
-      if (typeof stock !== "number" || stock < 0) {
-        return res.status(400).json({ error: "Le stock doit être un nombre positif ou zéro." });
-      }
-      data.stock = parseInt(stock, 10);
-    }
-    if (category !== undefined) data.category = category;
+    if (name !== undefined) data.name = requireString(name, 2, 200, "name");
+    if (description !== undefined) data.description = requireString(description, 5, 2000, "description");
+    if (price !== undefined) data.price = requireNumber(price, { min: 0.01, max: 1_000_000, field: "price" });
+    if (stock !== undefined) data.stock = requireNumber(stock, { min: 0, max: 1_000_000, field: "stock" });
+    if (category !== undefined) data.category = requireString(category, 2, 120, "category");
 
     if (Object.keys(data).length === 0) {
-      return res.status(400).json({ error: "Aucun champ à mettre à jour." });
+      return res.status(400).json({ error: "Aucun champ a mettre a jour." });
     }
 
     const existing = await prisma.product.findUnique({ where: { id } });
@@ -221,6 +212,9 @@ app.put("/products/:id", authMiddleware, adminMiddleware, async (req, res) => {
     const updated = await prisma.product.update({ where: { id }, data });
     res.json(updated);
   } catch (error) {
+    if (error.message?.includes("ID invalide") || error.message?.includes("doit")) {
+      return res.status(400).json({ error: error.message });
+    }
     console.error("Erreur PUT /products/:id :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -228,10 +222,7 @@ app.put("/products/:id", authMiddleware, adminMiddleware, async (req, res) => {
 
 app.delete("/products/:id", authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "ID invalide" });
-    }
+    const id = validateId(req.params.id);
 
     const existing = await prisma.product.findUnique({ where: { id } });
     if (!existing) {
@@ -239,37 +230,39 @@ app.delete("/products/:id", authMiddleware, adminMiddleware, async (req, res) =>
     }
 
     await prisma.product.delete({ where: { id } });
-    res.json({ message: "Produit supprimé avec succès" });
+    res.json({ message: "Produit supprime avec succes" });
   } catch (error) {
-    console.error("Erreur DELETE /products/:id :", error);
     if (error.code === "P2003") {
       return res
         .status(400)
-        .json({ error: "Impossible de supprimer ce produit car il est lié à des commandes." });
+        .json({ error: "Impossible de supprimer ce produit car il est lie a des commandes." });
     }
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID invalide" });
+    }
+    console.error("Erreur DELETE /products/:id :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// Mise à jour de profil
+// Mise a jour de profil
 app.put("/me", authMiddleware, async (req, res) => {
   try {
     const { name, email, password } = req.body;
     const data = {};
 
-    if (name) data.name = name;
-    if (email) data.email = email;
-
+    if (name) data.name = requireString(name, 2, 120, "name");
+    if (email) data.email = requireEmail(email);
     if (password) {
       if (password.length < 8) {
-        return res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères." });
+        return res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caracteres." });
       }
       const hashed = await bcrypt.hash(password, 10);
       data.password = hashed;
     }
 
     if (Object.keys(data).length === 0) {
-      return res.status(400).json({ error: "Aucun champ à mettre à jour." });
+      return res.status(400).json({ error: "Aucun champ a mettre a jour." });
     }
 
     const updatedUser = await prisma.user.update({
@@ -280,10 +273,10 @@ app.put("/me", authMiddleware, async (req, res) => {
 
     res.json(updatedUser);
   } catch (error) {
-    console.error("Erreur PUT /me :", error);
     if (error.code === "P2002") {
-      return res.status(409).json({ error: "Cet email est déjà utilisé par un autre compte." });
+      return res.status(409).json({ error: "Cet email est deja utilise par un autre compte." });
     }
+    console.error("Erreur PUT /me :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -292,15 +285,22 @@ app.put("/me", authMiddleware, async (req, res) => {
 app.delete("/me", authMiddleware, async (req, res) => {
   try {
     await prisma.user.delete({ where: { id: req.userId } });
-    res.json({ message: "Compte supprimé avec succès." });
+    res.json({ message: "Compte supprime avec succes." });
   } catch (error) {
     console.error("Erreur DELETE /me :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
+// Middleware d'erreur
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  console.error("Erreur non capturee :", err);
+  res.status(500).json({ error: "Erreur serveur" });
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Backend démarré sur http://localhost:${PORT}`);
+  console.log(`Backend demarre sur http://localhost:${PORT}`);
   console.log(`Documentation Swagger : http://localhost:${PORT}/api-docs`);
 });

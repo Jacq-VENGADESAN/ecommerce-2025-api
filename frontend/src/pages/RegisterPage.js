@@ -2,25 +2,16 @@ import React, { useState } from "react";
 import axiosClient from "../api/axiosClient";
 
 export default function RegisterPage() {
-  const [form, setForm] = useState({
-    email: "",
-    password: "",
-    name: "",
-  });
-
+  const [form, setForm] = useState({ email: "", password: "", name: "" });
   const [message, setMessage] = useState("");
 
   function handleChange(e) {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
+    setForm({ ...form, [e.target.name]: e.target.value });
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setMessage("");
-
     try {
       const res = await axiosClient.post("/auth/register", form);
       setMessage(`Compte créé pour ${res.data.email}`);
@@ -31,41 +22,42 @@ export default function RegisterPage() {
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Inscription</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>Nom :</label><br />
-          <input
-            name="name"
-            value={form.name}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <label>Email :</label><br />
-          <input
-            name="email"
-            type="email"
-            value={form.email}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <label>Mot de passe :</label><br />
-          <input
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <button type="submit" style={{ marginTop: "10px" }}>Créer un compte</button>
-      </form>
-      {message && <p style={{ marginTop: "10px" }}>{message}</p>}
+    <div className="page">
+      <div className="page-title">Inscription</div>
+      <div className="card">
+        <form onSubmit={handleSubmit} className="form">
+          <div className="form-group">
+            <label className="form-label">Nom</label>
+            <input className="form-input" name="name" value={form.name} onChange={handleChange} required />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input
+              className="form-input"
+              name="email"
+              type="email"
+              value={form.email}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Mot de passe</label>
+            <input
+              className="form-input"
+              name="password"
+              type="password"
+              value={form.password}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <button className="btn btn-primary" type="submit">
+            Créer un compte
+          </button>
+          {message && <p className="message">{message}</p>}
+        </form>
+      </div>
     </div>
   );
 }

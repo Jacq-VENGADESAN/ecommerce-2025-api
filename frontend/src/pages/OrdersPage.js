@@ -16,65 +16,51 @@ export default function OrdersPage() {
   }, []);
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Mes commandes</h1>
+    <div className="page">
+      <div className="page-title">Mes commandes</div>
+      {error && <p className="message">{error}</p>}
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {orders.length === 0 && !error && <p className="muted">Vous n'avez pas encore passé de commande.</p>}
 
-      {orders.length === 0 && !error && <p>Vous n'avez pas encore passé de commande.</p>}
-
-      {orders.map((order) => (
-        <div
-          key={order.id}
-          style={{
-            border: "1px solid #ddd",
-            padding: "10px",
-            marginBottom: "15px",
-          }}
-        >
-          <h3>Commande #{order.id}</h3>
-          <p>
-            Statut commande : <strong>{order.status}</strong>
-          </p>
-          <p>
-            Total : <strong>{order.total.toFixed(2)} €</strong>
-          </p>
-          <p>
-            Date :{" "}
-            {new Date(order.createdAt).toLocaleString("fr-FR", {
-              dateStyle: "short",
-              timeStyle: "short",
-            })}
-          </p>
-
-          {order.delivery && (
+      <div className="stack">
+        {orders.map((order) => (
+          <div key={order.id} className="card">
+            <div className="inline" style={{ justifyContent: "space-between" }}>
+              <h3>Commande #{order.id}</h3>
+              <span className="pill">{new Date(order.createdAt).toLocaleString("fr-FR")}</span>
+            </div>
             <p>
-              Livraison : {order.delivery.status}
-              {order.delivery.method ? ` (${order.delivery.method})` : ""}{" "}
-              {order.delivery.address ? ` – ${order.delivery.address}` : ""}
-              {order.delivery.estimatedAt
-                ? ` (ETA: ${new Date(order.delivery.estimatedAt).toLocaleDateString("fr-FR")})`
-                : ""}
+              Statut : <strong>{order.status}</strong>
             </p>
-          )}
-
-          {order.payment && (
             <p>
-              Paiement : {order.payment.status} – {order.payment.amount} €
+              Total : <strong>{order.total.toFixed(2)} €</strong>
             </p>
-          )}
 
-          <h4>Articles :</h4>
-          <ul>
-            {order.items.map((item) => (
-              <li key={item.id}>
-                {item.product ? `${item.product.name} ` : `Produit #${item.productId} `}
-                – {item.price} € x {item.quantity}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+            {order.delivery && (
+              <p>
+                Livraison : {order.delivery.status}
+                {order.delivery.method ? ` (${order.delivery.method})` : ""} {order.delivery.address || ""}
+              </p>
+            )}
+
+            {order.payment && (
+              <p>
+                Paiement : {order.payment.status} · {order.payment.amount} €
+              </p>
+            )}
+
+            <div className="section-title">Articles</div>
+            <ul className="list">
+              {order.items.map((item) => (
+                <li key={item.id} className="card" style={{ padding: 10 }}>
+                  {item.product ? `${item.product.name}` : `Produit #${item.productId}`} · {item.price} € x{" "}
+                  {item.quantity}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

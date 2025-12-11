@@ -9,6 +9,7 @@ const express = require("express");
 const authMiddleware = require("../middlewares/authMiddleware");
 const adminMiddleware = require("../middlewares/adminMiddleware");
 const prisma = require("../prisma");
+const { validateId, requireNumber } = require("../utils/validation");
 
 const router = express.Router();
 
@@ -37,44 +38,6 @@ function validateDeliveryPayload(delivery = {}) {
  * - Crée Order + OrderItems + Payment + Delivery
  * - Décrémente le stock
  */
-/**
- * @swagger
- * /orders:
- *   post:
- *     summary: Créer une commande avec paiement et livraison
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               items:
- *                 type: array
- *                 items:
- *                   type: object
- *                   properties:
- *                     productId:
- *                       type: integer
- *                     quantity:
- *                       type: integer
- *               delivery:
- *                 type: object
- *                 properties:
- *                   method:
- *                     type: string
- *                     enum: [delivery, pickup]
- *                   address:
- *                     type: string
- *                   pickupPoint:
- *                     type: string
- *     responses:
- *       201:
- *         description: Commande créée
- */
 router.post("/", authMiddleware, async (req, res) => {
   try {
     const { items, delivery } = req.body;
@@ -83,14 +46,16 @@ router.post("/", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "La commande doit contenir au moins un produit." });
     }
 
+    if (items.length > 100) {
+      return res.status(400).json({ error: "Trop d'articles dans la commande (max 100)." });
+    }
+
     for (const item of items) {
-      if (!item.productId || !item.quantity) {
-        return res
-          .status(400)
-          .json({ error: "Chaque item doit avoir un productId et une quantity." });
-      }
-      if (item.quantity < 1 || item.quantity > 100) {
-        return res.status(400).json({ error: "La quantité doit être entre 1 et 100." });
+      try {
+        item.productId = validateId(item.productId);
+        item.quantity = requireNumber(item.quantity, { min: 1, max: 100, field: "quantity" });
+      } catch (err) {
+        return res.status(400).json({ error: err.message || "Item invalide." });
       }
     }
 
@@ -116,7 +81,7 @@ router.post("/", authMiddleware, async (req, res) => {
       }
       if (product.stock < item.quantity) {
         return res.status(400).json({
-          error: `Stock insuffisant pour "${product.name}". Disponible : ${product.stock}, demandé : ${item.quantity}`,
+          error: `Stock insuffisant pour "${product.name}". Disponible : ${product.stock}, demande : ${item.quantity}`,
         });
       }
       const itemTotal = product.price * item.quantity;
@@ -170,28 +135,16 @@ router.post("/", authMiddleware, async (req, res) => {
 
     res.status(201).json(order);
   } catch (error) {
-    console.error("Erreur POST /orders :", error);
     if (error.code === "P2025") {
-      return res.status(404).json({ error: "Ressource non trouvée lors de la transaction." });
+      return res.status(404).json({ error: "Ressource non trouvee lors de la transaction." });
     }
+    console.error("Erreur POST /orders :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
 /**
  * Récupérer les commandes de l'utilisateur connecté
- */
-/**
- * @swagger
- * /orders/me:
- *   get:
- *     summary: Historique des commandes de l'utilisateur connecté
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Liste des commandes
  */
 router.get("/me", authMiddleware, async (req, res) => {
   try {
@@ -216,10 +169,7 @@ router.get("/me", authMiddleware, async (req, res) => {
  */
 router.get("/:id", authMiddleware, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "ID invalide." });
-    }
+    const id = validateId(req.params.id);
 
     const order = await prisma.order.findUnique({
       where: { id },
@@ -236,11 +186,14 @@ router.get("/:id", authMiddleware, async (req, res) => {
     }
 
     if (order.userId !== req.userId && req.user.role !== "admin") {
-      return res.status(403).json({ error: "Accès non autorisé." });
+      return res.status(403).json({ error: "Acces non autorise." });
     }
 
     res.json(order);
   } catch (error) {
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID invalide." });
+    }
     console.error("Erreur GET /orders/:id :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -267,10 +220,7 @@ router.get("/", authMiddleware, adminMiddleware, async (_req, res) => {
  */
 router.patch("/:id/cancel", authMiddleware, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "ID invalide." });
-    }
+    const id = validateId(req.params.id);
 
     const order = await prisma.order.findUnique({
       where: { id },
@@ -281,13 +231,13 @@ router.patch("/:id/cancel", authMiddleware, async (req, res) => {
       return res.status(404).json({ error: "Commande introuvable." });
     }
     if (order.userId !== req.userId) {
-      return res.status(403).json({ error: "Accès non autorisé." });
+      return res.status(403).json({ error: "Acces non autorise." });
     }
     if (order.status === "cancelled") {
-      return res.status(400).json({ error: "Commande déjà annulée." });
+      return res.status(400).json({ error: "Commande deja annulee." });
     }
     if (!["pending", "preparing"].includes(order.status)) {
-      return res.status(400).json({ error: "Seules les commandes en attente/préparation peuvent être annulées." });
+      return res.status(400).json({ error: "Seules les commandes en attente/preparation peuvent etre annulees." });
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -316,6 +266,9 @@ router.patch("/:id/cancel", authMiddleware, async (req, res) => {
 
     res.json(updated);
   } catch (error) {
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID invalide." });
+    }
     console.error("Erreur PATCH /orders/:id/cancel :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
@@ -326,17 +279,13 @@ router.patch("/:id/cancel", authMiddleware, async (req, res) => {
  */
 router.patch("/:id/status", authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = validateId(req.params.id);
     const { orderStatus, paymentStatus, deliveryStatus, estimatedAt } = req.body;
-
-    if (isNaN(id)) {
-      return res.status(400).json({ error: "ID invalide." });
-    }
 
     const dataOrder = {};
     if (orderStatus) {
       if (!ORDER_STATUSES.includes(orderStatus)) {
-        return res.status(400).json({ error: `orderStatus doit être dans ${ORDER_STATUSES.join(", ")}` });
+        return res.status(400).json({ error: `orderStatus doit etre dans ${ORDER_STATUSES.join(", ")}` });
       }
       dataOrder.status = orderStatus;
     }
@@ -346,7 +295,7 @@ router.patch("/:id/status", authMiddleware, adminMiddleware, async (req, res) =>
       if (!PAYMENT_STATUSES.includes(paymentStatus)) {
         return res
           .status(400)
-          .json({ error: `paymentStatus doit être dans ${PAYMENT_STATUSES.join(", ")}` });
+          .json({ error: `paymentStatus doit etre dans ${PAYMENT_STATUSES.join(", ")}` });
       }
       paymentData.status = paymentStatus;
     }
@@ -356,20 +305,20 @@ router.patch("/:id/status", authMiddleware, adminMiddleware, async (req, res) =>
       if (!DELIVERY_STATUSES.includes(deliveryStatus)) {
         return res
           .status(400)
-          .json({ error: `deliveryStatus doit être dans ${DELIVERY_STATUSES.join(", ")}` });
+          .json({ error: `deliveryStatus doit etre dans ${DELIVERY_STATUSES.join(", ")}` });
       }
       deliveryData.status = deliveryStatus;
     }
     if (estimatedAt) {
       const estimatedDate = new Date(estimatedAt);
       if (isNaN(estimatedDate.getTime())) {
-        return res.status(400).json({ error: "estimatedAt doit être une date valide." });
+        return res.status(400).json({ error: "estimatedAt doit etre une date valide." });
       }
       deliveryData.estimatedAt = estimatedDate;
     }
 
     if (!Object.keys(dataOrder).length && !Object.keys(paymentData).length && !Object.keys(deliveryData).length) {
-      return res.status(400).json({ error: "Aucune mise à jour fournie." });
+      return res.status(400).json({ error: "Aucune mise a jour fournie." });
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -401,6 +350,9 @@ router.patch("/:id/status", authMiddleware, adminMiddleware, async (req, res) =>
   } catch (error) {
     if (error.message === "NOT_FOUND") {
       return res.status(404).json({ error: "Commande introuvable." });
+    }
+    if (error.message?.includes("ID invalide")) {
+      return res.status(400).json({ error: "ID invalide." });
     }
     console.error("Erreur PATCH /orders/:id/status :", error);
     res.status(500).json({ error: "Erreur serveur" });

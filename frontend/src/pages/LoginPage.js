@@ -2,29 +2,19 @@ import React, { useState } from "react";
 import axiosClient from "../api/axiosClient";
 
 export default function LoginPage() {
-  const [form, setForm] = useState({
-    email: "",
-    password: "",
-  });
-
+  const [form, setForm] = useState({ email: "", password: "" });
   const [message, setMessage] = useState("");
 
   function handleChange(e) {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
+    setForm({ ...form, [e.target.name]: e.target.value });
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setMessage("");
-
     try {
       const res = await axiosClient.post("/auth/login", form);
       const { token, user } = res.data;
-
-      // Stocker le token en localStorage
       localStorage.setItem("token", token);
       setMessage(`Connecté en tant que ${user.email}`);
     } catch (error) {
@@ -34,32 +24,38 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Connexion</h1>
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>Email :</label><br />
-          <input
-            name="email"
-            type="email"
-            value={form.email}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <label>Mot de passe :</label><br />
-          <input
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <button type="submit" style={{ marginTop: "10px" }}>Se connecter</button>
-      </form>
-      {message && <p style={{ marginTop: "10px" }}>{message}</p>}
+    <div className="page">
+      <div className="page-title">Connexion</div>
+      <div className="card">
+        <form onSubmit={handleSubmit} className="form">
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input
+              className="form-input"
+              name="email"
+              type="email"
+              value={form.email}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Mot de passe</label>
+            <input
+              className="form-input"
+              name="password"
+              type="password"
+              value={form.password}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <button className="btn btn-primary" type="submit">
+            Se connecter
+          </button>
+          {message && <p className="message">{message}</p>}
+        </form>
+      </div>
     </div>
   );
 }

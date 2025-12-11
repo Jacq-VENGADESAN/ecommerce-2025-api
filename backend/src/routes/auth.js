@@ -5,6 +5,9 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const prisma = require("../prisma");
+const authMiddleware = require("../middlewares/authMiddleware");
+const { addToBlacklist } = require("../utils/tokenBlacklist");
+const { requireEmail, requirePassword, requireString } = require("../utils/validation");
 
 const router = express.Router();
 
@@ -47,45 +50,28 @@ router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
-    // Vérif basique
-    if (!email || !password || !name) {
-      return res.status(400).json({ 
-        error: "email, password et name sont obligatoires." 
-      });
-    }
+    const safeEmail = requireEmail(email);
+    requirePassword(password, 8);
+    const safeName = requireString(name, 2, 120, "name");
 
-    // ✅ AJOUTÉ : Validation du mot de passe
-    if (password.length < 8) {
-      return res.status(400).json({ 
-        error: "Le mot de passe doit contenir au moins 8 caractères." 
-      });
-    }
-
-    // Vérifier si l'email existe déjà
     const existingUser = await prisma.user.findUnique({
-      where: { email },
+      where: { email: safeEmail },
     });
 
     if (existingUser) {
-      return res.status(409).json({ 
-        error: "Un utilisateur avec cet email existe déjà." 
-      });
+      return res.status(409).json({ error: "Un utilisateur avec cet email existe déjà." });
     }
 
-    // Hasher le mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Créer l'utilisateur (par défaut role = "user")
     const user = await prisma.user.create({
       data: {
-        email,
+        email: safeEmail,
         password: hashedPassword,
-        name,
-        // role: "user" est défini par défaut dans le schéma
+        name: safeName,
       },
     });
 
-    // On ne renvoie pas le mot de passe
     const userWithoutPassword = {
       id: user.id,
       email: user.email,
@@ -129,46 +115,39 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Vérif basique
-    if (!email || !password) {
-      return res.status(400).json({ 
-        error: "email et password sont obligatoires." 
-      });
-    }
+    const safeEmail = requireEmail(email);
+    requirePassword(password, 8);
 
-    // Chercher l'utilisateur
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: safeEmail },
     });
 
     if (!user) {
       return res.status(401).json({ error: "Identifiants invalides." });
     }
 
-    // Comparer les mots de passe
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       return res.status(401).json({ error: "Identifiants invalides." });
     }
 
-    // ✅ AMÉLIORÉ : Token avec durée courte + informations enrichies
     const token = jwt.sign(
-      { 
+      {
         userId: user.id,
         email: user.email,
-        role: user.role, // ✅ Inclure le rôle dans le token
+        role: user.role,
         iat: Math.floor(Date.now() / 1000),
-        jti: crypto.randomUUID(), // ✅ ID unique pour tracking/révocation future
+        jti: crypto.randomUUID(),
       },
       process.env.JWT_SECRET,
-      { expiresIn: "2h" } // ✅ 2 heures au lieu de 7 jours
+      { expiresIn: "2h" }
     );
 
     const userWithoutPassword = {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role, // ✅ Renvoyer le rôle au frontend
+      role: user.role,
     };
 
     res.json({
@@ -177,6 +156,19 @@ router.post("/login", async (req, res) => {
     });
   } catch (error) {
     console.error("Erreur /auth/login :", error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+// Déconnexion : révocation du JWT courant
+router.post("/logout", authMiddleware, (req, res) => {
+  try {
+    if (req.tokenJti && req.tokenExp) {
+      addToBlacklist(req.tokenJti, req.tokenExp);
+    }
+    res.json({ message: "Déconnexion effectuée." });
+  } catch (error) {
+    console.error("Erreur /auth/logout :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });

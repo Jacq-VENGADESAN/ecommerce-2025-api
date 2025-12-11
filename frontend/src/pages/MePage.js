@@ -8,9 +8,7 @@ export default function MePage() {
   useEffect(() => {
     axiosClient
       .get("/me")
-      .then((res) => {
-        setUser(res.data);
-      })
+      .then((res) => setUser(res.data))
       .catch((err) => {
         console.error(err);
         setError(err.response?.data?.error || "Erreur");
@@ -19,29 +17,42 @@ export default function MePage() {
 
   if (error) {
     return (
-      <div style={{ padding: "20px" }}>
-        <h1>Mon profil</h1>
-        <p style={{ color: "red" }}>{error}</p>
+      <div className="page">
+        <div className="page-title">Mon profil</div>
+        <p className="message">{error}</p>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div style={{ padding: "20px" }}>
-        <h1>Mon profil</h1>
-        <p>Chargement...</p>
+      <div className="page">
+        <div className="page-title">Mon profil</div>
+        <p className="muted">Chargement...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Mon profil</h1>
-      <p><strong>ID :</strong> {user.id}</p>
-      <p><strong>Email :</strong> {user.email}</p>
-      <p><strong>Nom :</strong> {user.name}</p>
-      <p><strong>Créé le :</strong> {new Date(user.createdAt).toLocaleString()}</p>
+    <div className="page">
+      <div className="page-title">Mon profil</div>
+      <div className="card">
+        <p>
+          <strong>ID :</strong> {user.id}
+        </p>
+        <p>
+          <strong>Email :</strong> {user.email}
+        </p>
+        <p>
+          <strong>Nom :</strong> {user.name}
+        </p>
+        <p>
+          <strong>Créé le :</strong> {new Date(user.createdAt).toLocaleString()}
+        </p>
+        <p>
+          <strong>Rôle :</strong> {user.role}
+        </p>
+      </div>
     </div>
   );
 }

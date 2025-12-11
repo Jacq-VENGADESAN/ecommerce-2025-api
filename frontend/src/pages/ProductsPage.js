@@ -10,12 +10,7 @@ export default function ProductsPage() {
   const { addToCart } = useCart();
 
   useEffect(() => {
-    axiosClient
-      .get("/products")
-      .then((res) => setProducts(res.data))
-      .catch((err) => {
-        console.error("Erreur /products", err);
-      });
+    axiosClient.get("/products").then((res) => setProducts(res.data)).catch(console.error);
 
     axiosClient
       .get("/recommendations")
@@ -24,63 +19,60 @@ export default function ProductsPage() {
         if (res.data.topRated) setTopRated(res.data.topRated);
         if (res.data.pickupPoints) setPickupPoints(res.data.pickupPoints);
       })
-      .catch((err) => console.error("Erreur recommandations", err));
+      .catch(console.error);
   }, []);
 
+  const ProductList = ({ title, items }) => (
+    <div className="card">
+      <div className="section-title">{title}</div>
+      {(!items || items.length === 0) && <p className="muted">Aucun élément à afficher.</p>}
+      <div className="grid">
+        {items?.map((p) => (
+          <div className="card product-card" key={p.id}>
+            <div className="product-title">{p.name}</div>
+            {p.category && <div className="product-category">{p.category}</div>}
+            <div className="product-price">{p.price} €</div>
+            <div className="product-actions">
+              <button className="btn btn-primary" onClick={() => addToCart(p)}>
+                Ajouter
+              </button>
+              <a className="btn btn-secondary" href={`/product?id=${p.id}`}>
+                Détails
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Catalogue de produits</h1>
+    <div className="page">
+      <div>
+        <div className="page-title">Catalogue</div>
+        <p className="muted">Découvrez les produits, vos recommandations et les points de retrait proches.</p>
+      </div>
 
-      {products.length === 0 && <p>Aucun produit pour le moment.</p>}
-      <ul>
-        {products.map((p) => (
-          <li key={p.id} style={{ marginBottom: "10px" }}>
-            <strong>{p.name}</strong> – {p.price} €
-            <button style={{ marginLeft: "10px" }} onClick={() => addToCart(p)}>
-              Ajouter au panier
-            </button>
-            <a href={`/product?id=${p.id}`} style={{ marginLeft: "10px", color: "blue" }}>
-              Voir le détail
-            </a>
-          </li>
-        ))}
-      </ul>
+      <ProductList title="Tous les produits" items={products} />
+      <ProductList title="Recommandations pour vous" items={recommended} />
+      <ProductList title="Mieux notés" items={topRated} />
 
-      <h2 style={{ marginTop: "40px" }}>Recommandations pour vous</h2>
-      {recommended.length === 0 && <p>Aucune recommandation pour le moment.</p>}
-      <ul>
-        {recommended.map((prod) => (
-          <li key={prod.id} style={{ marginBottom: "10px" }}>
-            <strong>{prod.name}</strong> – {prod.price} €
-            <a href={`/product?id=${prod.id}`} style={{ marginLeft: "10px", color: "blue" }}>
-              Voir le détail
-            </a>
-          </li>
-        ))}
-      </ul>
-
-      <h2 style={{ marginTop: "40px" }}>Produits les mieux notés</h2>
-      {topRated.length === 0 && <p>Aucun produit bien noté pour le moment.</p>}
-      <ul>
-        {topRated.map((prod) => (
-          <li key={prod.id} style={{ marginBottom: "10px" }}>
-            <strong>{prod.name}</strong> – {prod.price} €
-            <a href={`/product?id=${prod.id}`} style={{ marginLeft: "10px", color: "blue" }}>
-              Voir le détail
-            </a>
-          </li>
-        ))}
-      </ul>
-
-      <h2 style={{ marginTop: "40px" }}>Points de retrait proches</h2>
-      {pickupPoints.length === 0 && <p>Aucun point trouvé (ajoutez lat/lon dans l’URL ou activez la géolocalisation côté API).</p>}
-      <ul>
-        {pickupPoints.map((p, idx) => (
-          <li key={idx} style={{ marginBottom: "8px" }}>
-            {p.display_name || p.name || "Point de retrait"} – {p.address?.city || p.address?.town || ""}
-          </li>
-        ))}
-      </ul>
+      <div className="card">
+        <div className="section-title">Points de retrait proches</div>
+        {pickupPoints.length === 0 && <p className="muted">Aucun point trouvé pour le moment.</p>}
+        <ul className="list">
+          {pickupPoints.map((p, idx) => (
+            <li key={idx} className="card" style={{ padding: 12 }}>
+              <div className="product-title">{p.display_name || p.name || "Point de retrait"}</div>
+              <div className="muted">
+                {p.address?.road && `${p.address.road}, `}
+                {p.address?.postcode && `${p.address.postcode} `}
+                {p.address?.city || p.address?.town || ""}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

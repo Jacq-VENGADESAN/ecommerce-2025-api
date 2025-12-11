@@ -52,75 +52,77 @@ export default function CartPage() {
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Mon panier</h1>
+    <div className="page">
+      <div className="page-title">Mon panier</div>
 
-      {items.length === 0 && <p>Votre panier est vide.</p>}
+      <div className="card">
+        {items.length === 0 && <p className="muted">Votre panier est vide.</p>}
 
-      {items.length > 0 && (
-        <>
-          <ul>
-            {items.map((item) => (
-              <li key={item.productId} style={{ marginBottom: "10px" }}>
-                <strong>{item.name}</strong> – {item.price} € x {item.quantity}
-                <button style={{ marginLeft: "10px" }} onClick={() => removeFromCart(item.productId)}>
-                  Retirer
-                </button>
-              </li>
-            ))}
-          </ul>
+        {items.length > 0 && (
+          <div className="stack">
+            <ul className="list">
+              {items.map((item) => (
+                <li key={item.productId} className="card" style={{ padding: 12 }}>
+                  <div className="inline" style={{ justifyContent: "space-between" }}>
+                    <div>
+                      <strong>{item.name}</strong> · {item.price} € x {item.quantity}
+                    </div>
+                    <button className="btn btn-secondary" onClick={() => removeFromCart(item.productId)}>
+                      Retirer
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
 
-          <h2>Total : {total.toFixed(2)} €</h2>
+            <div className="section-title">Total : {total.toFixed(2)} €</div>
 
-          <div style={{ margin: "10px 0" }}>
-            <label>
-              Mode de livraison :
+            <div className="form-group">
+              <label className="form-label">Mode de livraison</label>
               <select
+                className="form-select"
                 value={deliveryMethod}
                 onChange={(e) => setDeliveryMethod(e.target.value)}
-                style={{ marginLeft: 8 }}
               >
                 <option value="delivery">Livraison</option>
                 <option value="pickup">Point de retrait</option>
               </select>
-            </label>
-          </div>
+            </div>
 
-          {deliveryMethod === "delivery" && (
-            <div style={{ margin: "10px 0" }}>
-              <label>
-                Adresse :
+            {deliveryMethod === "delivery" && (
+              <div className="form-group">
+                <label className="form-label">Adresse</label>
                 <input
+                  className="form-input"
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="12 rue Exemple, Paris"
-                  style={{ marginLeft: 8, width: "300px" }}
                 />
-              </label>
-            </div>
-          )}
+              </div>
+            )}
 
-          {deliveryMethod === "pickup" && (
-            <div style={{ margin: "10px 0" }}>
-              <label>
-                Point de retrait :
+            {deliveryMethod === "pickup" && (
+              <div className="form-group">
+                <label className="form-label">Point de retrait</label>
                 <input
+                  className="form-input"
                   type="text"
                   value={pickupPoint}
                   onChange={(e) => setPickupPoint(e.target.value)}
                   placeholder="Point relais ou bureau de poste"
-                  style={{ marginLeft: 8, width: "280px" }}
                 />
-              </label>
-            </div>
-          )}
+              </div>
+            )}
 
-          <button onClick={handleCheckout}>Passer commande</button>
-        </>
-      )}
+            <button className="btn btn-primary" onClick={handleCheckout}>
+              Passer commande
+            </button>
+          </div>
+        )}
 
-      {message && <p style={{ marginTop: "10px" }}>{message}</p>}
+        {message && <p className="message">{message}</p>}
+      </div>
     </div>
   );
 }
