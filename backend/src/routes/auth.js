@@ -1,13 +1,12 @@
 // backend/src/routes/auth.js
 
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const prisma = require("../prisma");
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /**
  * @swagger

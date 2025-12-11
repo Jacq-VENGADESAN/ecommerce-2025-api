@@ -1,11 +1,10 @@
 // backend/src/routes/reviews.js
 
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
 const authMiddleware = require("../middlewares/authMiddleware");
+const prisma = require("../prisma");
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /**
  * POST /reviews
@@ -25,6 +24,10 @@ router.post("/", authMiddleware, async (req, res) => {
       return res.status(400).json({
         error: "productId, rating et comment sont obligatoires.",
       });
+    }
+
+    if (typeof comment !== "string" || comment.trim().length < 3 || comment.trim().length > 500) {
+      return res.status(400).json({ error: "Le commentaire doit contenir entre 3 et 500 caractères." });
     }
 
     const parsedProductId = parseInt(productId, 10);

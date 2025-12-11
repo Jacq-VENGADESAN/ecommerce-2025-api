@@ -1,9 +1,31 @@
+// backend/src/routes/geo.js
+/**
+ * @swagger
+ * tags:
+ *   name: Geo
+ *   description: Géolocalisation (OpenStreetMap/Nominatim)
+ */
 const express = require("express");
 const axios = require("axios");
 
 const router = express.Router();
 
-// Chercher une adresse → coordonnées
+/**
+ * @swagger
+ * /geo/search:
+ *   get:
+ *     summary: Chercher une adresse et retourner les coordonnées
+ *     tags: [Geo]
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Résultat géocodé
+ */
 router.get("/search", async (req, res) => {
   try {
     const query = req.query.query;
@@ -20,9 +42,8 @@ router.get("/search", async (req, res) => {
         addressdetails: 1,
         limit: 1,
       },
-      headers: {
-        "User-Agent": "ecommerce-2025-student-project"
-      },
+      timeout: 5000,
+      headers: { "User-Agent": "ecommerce-2025-student-project" },
     });
 
     if (!Array.isArray(response.data) || response.data.length === 0) {
@@ -43,7 +64,27 @@ router.get("/search", async (req, res) => {
   }
 });
 
-// Chercher des points de retrait autour d'une position
+/**
+ * @swagger
+ * /geo/pickup:
+ *   get:
+ *     summary: Chercher des points de retrait autour d'une position
+ *     tags: [Geo]
+ *     parameters:
+ *       - in: query
+ *         name: lat
+ *         required: true
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: lon
+ *         required: true
+ *         schema:
+ *           type: number
+ *     responses:
+ *       200:
+ *         description: Points de retrait
+ */
 router.get("/pickup", async (req, res) => {
   try {
     const { lat, lon } = req.query;
@@ -68,11 +109,10 @@ router.get("/pickup", async (req, res) => {
         addressdetails: 1,
         limit: 10,
         bounded: 1,
-        viewbox: `${lonNum - 0.02},${latNum + 0.02},${lonNum + 0.02},${latNum - 0.02}`
+        viewbox: `${lonNum - 0.02},${latNum + 0.02},${lonNum + 0.02},${latNum - 0.02}`,
       },
-      headers: {
-        "User-Agent": "ecommerce-2025-student-project"
-      },
+      timeout: 5000,
+      headers: { "User-Agent": "ecommerce-2025-student-project" },
     });
 
     res.json(response.data);

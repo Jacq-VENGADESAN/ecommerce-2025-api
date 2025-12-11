@@ -92,6 +92,7 @@ model Delivery {
   orderId     Int     @unique
   status      String  @default("preparing")
   address     String?
+  method      String  @default("delivery") // delivery | pickup
   estimatedAt DateTime?
   updatedAt   DateTime @updatedAt
 }

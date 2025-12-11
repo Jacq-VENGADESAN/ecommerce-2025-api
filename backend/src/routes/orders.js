@@ -1,137 +1,163 @@
 // backend/src/routes/orders.js
-
+/**
+ * @swagger
+ * tags:
+ *   name: Orders
+ *   description: Gestion des commandes, paiements, livraisons
+ */
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
 const authMiddleware = require("../middlewares/authMiddleware");
+const adminMiddleware = require("../middlewares/adminMiddleware");
+const prisma = require("../prisma");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+
+const ORDER_STATUSES = ["pending", "paid", "preparing", "shipped", "delivered", "cancelled"];
+const PAYMENT_STATUSES = ["processing", "paid", "failed", "cancelled", "refunded"];
+const DELIVERY_STATUSES = ["preparing", "shipped", "delivered", "cancelled"];
+
+function validateDeliveryPayload(delivery = {}) {
+  const method = delivery.method || "delivery";
+  if (!["delivery", "pickup"].includes(method)) {
+    return { error: "delivery.method doit valoir 'delivery' ou 'pickup'." };
+  }
+  if (method === "delivery" && !delivery.address) {
+    return { error: "delivery.address est requis pour une livraison." };
+  }
+  if (method === "pickup" && !delivery.pickupPoint) {
+    return { error: "delivery.pickupPoint est requis pour un retrait." };
+  }
+  return { method, address: delivery.address || delivery.pickupPoint || null };
+}
 
 /**
- * Créer une commande
- * - Vérifie que les produits existent
- * - Vérifie le stock
- * - ✅ VALIDE LES PRIX CÔTÉ BACKEND (ne fait pas confiance au client)
- * - Calcule le total
- * - Crée Order + OrderItems
+ * Créer une commande complète
+ * - Vérifie existence produits + stock
+ * - Valide prix côté serveur
+ * - Crée Order + OrderItems + Payment + Delivery
  * - Décrémente le stock
- * - Crée Payment + Delivery
+ */
+/**
+ * @swagger
+ * /orders:
+ *   post:
+ *     summary: Créer une commande avec paiement et livraison
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     productId:
+ *                       type: integer
+ *                     quantity:
+ *                       type: integer
+ *               delivery:
+ *                 type: object
+ *                 properties:
+ *                   method:
+ *                     type: string
+ *                     enum: [delivery, pickup]
+ *                   address:
+ *                     type: string
+ *                   pickupPoint:
+ *                     type: string
+ *     responses:
+ *       201:
+ *         description: Commande créée
  */
 router.post("/", authMiddleware, async (req, res) => {
   try {
-    const { items } = req.body;
+    const { items, delivery } = req.body;
 
-    // Validation de base
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ 
-        error: "La commande doit contenir au moins un produit." 
-      });
+      return res.status(400).json({ error: "La commande doit contenir au moins un produit." });
     }
 
-    // ✅ AJOUTÉ : Validation des quantités
     for (const item of items) {
       if (!item.productId || !item.quantity) {
-        return res.status(400).json({ 
-          error: "Chaque item doit avoir un productId et une quantity." 
-        });
+        return res
+          .status(400)
+          .json({ error: "Chaque item doit avoir un productId et une quantity." });
       }
-
       if (item.quantity < 1 || item.quantity > 100) {
-        return res.status(400).json({ 
-          error: "La quantité doit être entre 1 et 100." 
-        });
+        return res.status(400).json({ error: "La quantité doit être entre 1 et 100." });
       }
+    }
+
+    const deliveryCheck = validateDeliveryPayload(delivery);
+    if (deliveryCheck.error) {
+      return res.status(400).json({ error: deliveryCheck.error });
     }
 
     const productIds = items.map((i) => i.productId);
-
-    // Récupérer tous les produits concernés
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
-    });
+    const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
 
     if (products.length !== productIds.length) {
-      return res.status(400).json({ 
-        error: "Certains produits n'existent pas." 
-      });
+      return res.status(400).json({ error: "Certains produits n'existent pas." });
     }
 
-    // ✅ CRITIQUE : Valider le stock ET les prix côté backend
     let total = 0;
     const validatedItems = [];
 
     for (const item of items) {
       const product = products.find((p) => p.id === item.productId);
-      
       if (!product) {
-        return res.status(400).json({ 
-          error: `Produit ${item.productId} introuvable.` 
-        });
+        return res.status(400).json({ error: `Produit ${item.productId} introuvable.` });
       }
-
-      // Vérifier le stock
       if (product.stock < item.quantity) {
         return res.status(400).json({
-          error: `Stock insuffisant pour le produit "${product.name}". ` +
-                 `Disponible : ${product.stock}, demandé : ${item.quantity}`,
+          error: `Stock insuffisant pour "${product.name}". Disponible : ${product.stock}, demandé : ${item.quantity}`,
         });
       }
-
-      // ✅ SÉCURITÉ : Utiliser TOUJOURS le prix de la base de données
-      // Ne JAMAIS faire confiance au prix envoyé par le client
       const itemTotal = product.price * item.quantity;
       total += itemTotal;
-
       validatedItems.push({
         productId: product.id,
         quantity: item.quantity,
-        price: product.price, // ✅ Prix validé depuis la base
+        price: product.price,
       });
     }
 
-    // Transaction : créer la commande + items + paiement + livraison + décrémenter le stock
     const order = await prisma.$transaction(async (tx) => {
       const createdOrder = await tx.order.create({
         data: {
           userId: req.userId,
           status: "pending",
-          total, // ✅ Total calculé côté serveur
-          items: {
-            create: validatedItems, // ✅ Données validées
-          },
+          total,
+          items: { create: validatedItems },
         },
       });
 
-      // Décrémenter le stock de chaque produit
       for (const item of validatedItems) {
         await tx.product.update({
           where: { id: item.productId },
-          data: {
-            stock: {
-              decrement: item.quantity,
-            },
-          },
+          data: { stock: { decrement: item.quantity } },
         });
       }
 
-      // Créer le paiement (simulé)
       await tx.payment.create({
-        data: {
-          orderId: createdOrder.id,
-          amount: total, // ✅ Montant validé
-          status: "processing",
-        },
+        data: { orderId: createdOrder.id, amount: total, status: "processing" },
       });
 
-      // Créer la livraison (simulée)
       await tx.delivery.create({
         data: {
           orderId: createdOrder.id,
           status: "preparing",
+          address: deliveryCheck.address,
+          method: deliveryCheck.method,
         },
       });
 
-      // Renvoyer la commande complète
       return tx.order.findUnique({
         where: { id: createdOrder.id },
         include: {
@@ -145,20 +171,27 @@ router.post("/", authMiddleware, async (req, res) => {
     res.status(201).json(order);
   } catch (error) {
     console.error("Erreur POST /orders :", error);
-    
-    // ✅ AJOUTÉ : Gestion d'erreur plus granulaire
-    if (error.code === 'P2025') {
-      return res.status(404).json({ 
-        error: "Ressource non trouvée lors de la transaction." 
-      });
+    if (error.code === "P2025") {
+      return res.status(404).json({ error: "Ressource non trouvée lors de la transaction." });
     }
-    
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
 /**
  * Récupérer les commandes de l'utilisateur connecté
+ */
+/**
+ * @swagger
+ * /orders/me:
+ *   get:
+ *     summary: Historique des commandes de l'utilisateur connecté
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des commandes
  */
 router.get("/me", authMiddleware, async (req, res) => {
   try {
@@ -171,7 +204,6 @@ router.get("/me", authMiddleware, async (req, res) => {
       },
       orderBy: { createdAt: "desc" },
     });
-
     res.json(orders);
   } catch (error) {
     console.error("Erreur GET /orders/me :", error);
@@ -180,12 +212,62 @@ router.get("/me", authMiddleware, async (req, res) => {
 });
 
 /**
- * Annuler une commande (et recréditer le stock)
+ * Détail d'une commande (propriétaire ou admin)
+ */
+router.get("/:id", authMiddleware, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "ID invalide." });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        items: { include: { product: true } },
+        payment: true,
+        delivery: true,
+        user: { select: { id: true, email: true, role: true } },
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: "Commande introuvable." });
+    }
+
+    if (order.userId !== req.userId && req.user.role !== "admin") {
+      return res.status(403).json({ error: "Accès non autorisé." });
+    }
+
+    res.json(order);
+  } catch (error) {
+    console.error("Erreur GET /orders/:id :", error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+/**
+ * Listing des commandes (admin)
+ */
+router.get("/", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      include: { items: true, payment: true, delivery: true, user: true },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(orders);
+  } catch (error) {
+    console.error("Erreur GET /orders :", error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+/**
+ * Annuler une commande (user propriétaire)
  */
 router.patch("/:id/cancel", authMiddleware, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-
     if (isNaN(id)) {
       return res.status(400).json({ error: "ID invalide." });
     }
@@ -198,57 +280,35 @@ router.patch("/:id/cancel", authMiddleware, async (req, res) => {
     if (!order) {
       return res.status(404).json({ error: "Commande introuvable." });
     }
-
-    // ✅ SÉCURITÉ : Vérifier que l'utilisateur est propriétaire de la commande
     if (order.userId !== req.userId) {
       return res.status(403).json({ error: "Accès non autorisé." });
     }
-
     if (order.status === "cancelled") {
       return res.status(400).json({ error: "Commande déjà annulée." });
     }
-
-    if (order.status !== "pending") {
-      return res.status(400).json({
-        error: "Seules les commandes en attente peuvent être annulées.",
-      });
+    if (!["pending", "preparing"].includes(order.status)) {
+      return res.status(400).json({ error: "Seules les commandes en attente/préparation peuvent être annulées." });
     }
 
-    // Transaction : remettre le stock + changer les statuts
     const updated = await prisma.$transaction(async (tx) => {
-      // Réincrémenter le stock
       for (const item of order.items) {
         await tx.product.update({
           where: { id: item.productId },
-          data: {
-            stock: {
-              increment: item.quantity,
-            },
-          },
+          data: { stock: { increment: item.quantity } },
         });
       }
 
-      // Mettre à jour la commande
       const cancelledOrder = await tx.order.update({
         where: { id },
         data: { status: "cancelled" },
         include: { items: true, payment: true, delivery: true },
       });
 
-      // Mettre à jour le paiement (simulé)
       if (order.payment) {
-        await tx.payment.update({
-          where: { id: order.payment.id },
-          data: { status: "cancelled" },
-        });
+        await tx.payment.update({ where: { id: order.payment.id }, data: { status: "cancelled" } });
       }
-
-      // Mettre à jour la livraison (simulée)
       if (order.delivery) {
-        await tx.delivery.update({
-          where: { id: order.delivery.id },
-          data: { status: "cancelled" },
-        });
+        await tx.delivery.update({ where: { id: order.delivery.id }, data: { status: "cancelled" } });
       }
 
       return cancelledOrder;
@@ -257,6 +317,92 @@ router.patch("/:id/cancel", authMiddleware, async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error("Erreur PATCH /orders/:id/cancel :", error);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+/**
+ * Mise à jour des statuts commande/paiement/livraison (admin)
+ */
+router.patch("/:id/status", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { orderStatus, paymentStatus, deliveryStatus, estimatedAt } = req.body;
+
+    if (isNaN(id)) {
+      return res.status(400).json({ error: "ID invalide." });
+    }
+
+    const dataOrder = {};
+    if (orderStatus) {
+      if (!ORDER_STATUSES.includes(orderStatus)) {
+        return res.status(400).json({ error: `orderStatus doit être dans ${ORDER_STATUSES.join(", ")}` });
+      }
+      dataOrder.status = orderStatus;
+    }
+
+    const paymentData = {};
+    if (paymentStatus) {
+      if (!PAYMENT_STATUSES.includes(paymentStatus)) {
+        return res
+          .status(400)
+          .json({ error: `paymentStatus doit être dans ${PAYMENT_STATUSES.join(", ")}` });
+      }
+      paymentData.status = paymentStatus;
+    }
+
+    const deliveryData = {};
+    if (deliveryStatus) {
+      if (!DELIVERY_STATUSES.includes(deliveryStatus)) {
+        return res
+          .status(400)
+          .json({ error: `deliveryStatus doit être dans ${DELIVERY_STATUSES.join(", ")}` });
+      }
+      deliveryData.status = deliveryStatus;
+    }
+    if (estimatedAt) {
+      const estimatedDate = new Date(estimatedAt);
+      if (isNaN(estimatedDate.getTime())) {
+        return res.status(400).json({ error: "estimatedAt doit être une date valide." });
+      }
+      deliveryData.estimatedAt = estimatedDate;
+    }
+
+    if (!Object.keys(dataOrder).length && !Object.keys(paymentData).length && !Object.keys(deliveryData).length) {
+      return res.status(400).json({ error: "Aucune mise à jour fournie." });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.order.findUnique({
+        where: { id },
+        include: { payment: true, delivery: true, items: { include: { product: true } } },
+      });
+      if (!existing) {
+        throw new Error("NOT_FOUND");
+      }
+
+      const updatedOrder = await tx.order.update({
+        where: { id },
+        data: dataOrder,
+        include: { items: true, payment: true, delivery: true },
+      });
+
+      if (existing.payment && Object.keys(paymentData).length) {
+        await tx.payment.update({ where: { id: existing.payment.id }, data: paymentData });
+      }
+      if (existing.delivery && Object.keys(deliveryData).length) {
+        await tx.delivery.update({ where: { id: existing.delivery.id }, data: deliveryData });
+      }
+
+      return updatedOrder;
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error.message === "NOT_FOUND") {
+      return res.status(404).json({ error: "Commande introuvable." });
+    }
+    console.error("Erreur PATCH /orders/:id/status :", error);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });

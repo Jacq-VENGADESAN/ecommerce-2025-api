@@ -11,10 +11,7 @@ export default function OrdersPage() {
       .then((res) => setOrders(res.data))
       .catch((err) => {
         console.error("Erreur /orders/me :", err);
-        setError(
-          err.response?.data?.error ||
-            "Erreur lors du chargement des commandes. Êtes-vous connecté ?"
-        );
+        setError(err.response?.data?.error || "Erreur lors du chargement des commandes. Êtes-vous connecté ?");
       });
   }, []);
 
@@ -24,9 +21,7 @@ export default function OrdersPage() {
 
       {error && <p style={{ color: "red" }}>{error}</p>}
 
-      {orders.length === 0 && !error && (
-        <p>Vous n'avez pas encore passé de commande.</p>
-      )}
+      {orders.length === 0 && !error && <p>Vous n'avez pas encore passé de commande.</p>}
 
       {orders.map((order) => (
         <div
@@ -39,7 +34,7 @@ export default function OrdersPage() {
         >
           <h3>Commande #{order.id}</h3>
           <p>
-            Statut : <strong>{order.status}</strong>
+            Statut commande : <strong>{order.status}</strong>
           </p>
           <p>
             Total : <strong>{order.total.toFixed(2)} €</strong>
@@ -55,15 +50,17 @@ export default function OrdersPage() {
           {order.delivery && (
             <p>
               Livraison : {order.delivery.status}
-              {order.delivery.address
-                ? ` — ${order.delivery.address}`
+              {order.delivery.method ? ` (${order.delivery.method})` : ""}{" "}
+              {order.delivery.address ? ` – ${order.delivery.address}` : ""}
+              {order.delivery.estimatedAt
+                ? ` (ETA: ${new Date(order.delivery.estimatedAt).toLocaleDateString("fr-FR")})`
                 : ""}
             </p>
           )}
 
           {order.payment && (
             <p>
-              Paiement : {order.payment.status} — {order.payment.amount} €
+              Paiement : {order.payment.status} – {order.payment.amount} €
             </p>
           )}
 
@@ -71,10 +68,8 @@ export default function OrdersPage() {
           <ul>
             {order.items.map((item) => (
               <li key={item.id}>
-                {item.product
-                  ? `${item.product.name} `
-                  : `Produit #${item.productId} `}
-                — {item.price} € x {item.quantity}
+                {item.product ? `${item.product.name} ` : `Produit #${item.productId} `}
+                – {item.price} € x {item.quantity}
               </li>
             ))}
           </ul>

@@ -10,6 +10,15 @@ const options = {
       description:
         "Documentation de l'API e-commerce (auth, produits, commandes, avis, géolocalisation, recommandations).",
     },
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+        },
+      },
+    },
     servers: [
       {
         url: "http://localhost:4000",
