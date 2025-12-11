@@ -4,6 +4,7 @@ const express = require("express");
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -43,15 +44,22 @@ const prisma = new PrismaClient();
  *       400:
  *         description: Champs manquants ou utilisateur déjà existant
  */
-
-// POST /auth/register
 router.post("/register", async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
     // Vérif basique
     if (!email || !password || !name) {
-      return res.status(400).json({ error: "email, password et name sont obligatoires." });
+      return res.status(400).json({ 
+        error: "email, password et name sont obligatoires." 
+      });
+    }
+
+    // ✅ AJOUTÉ : Validation du mot de passe
+    if (password.length < 8) {
+      return res.status(400).json({ 
+        error: "Le mot de passe doit contenir au moins 8 caractères." 
+      });
     }
 
     // Vérifier si l'email existe déjà
@@ -60,18 +68,21 @@ router.post("/register", async (req, res) => {
     });
 
     if (existingUser) {
-      return res.status(409).json({ error: "Un utilisateur avec cet email existe déjà." });
+      return res.status(409).json({ 
+        error: "Un utilisateur avec cet email existe déjà." 
+      });
     }
 
     // Hasher le mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Créer l'utilisateur
+    // Créer l'utilisateur (par défaut role = "user")
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         name,
+        // role: "user" est défini par défaut dans le schéma
       },
     });
 
@@ -80,6 +91,7 @@ router.post("/register", async (req, res) => {
       id: user.id,
       email: user.email,
       name: user.name,
+      role: user.role,
     };
 
     res.status(201).json(userWithoutPassword);
@@ -114,15 +126,15 @@ router.post("/register", async (req, res) => {
  *       401:
  *         description: Identifiants invalides
  */
-
-// POST /auth/login
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
     // Vérif basique
     if (!email || !password) {
-      return res.status(400).json({ error: "email et password sont obligatoires." });
+      return res.status(400).json({ 
+        error: "email et password sont obligatoires." 
+      });
     }
 
     // Chercher l'utilisateur
@@ -140,17 +152,24 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Identifiants invalides." });
     }
 
-    // Générer un token JWT
+    // ✅ AMÉLIORÉ : Token avec durée courte + informations enrichies
     const token = jwt.sign(
-      { userId: user.id },
+      { 
+        userId: user.id,
+        email: user.email,
+        role: user.role, // ✅ Inclure le rôle dans le token
+        iat: Math.floor(Date.now() / 1000),
+        jti: crypto.randomUUID(), // ✅ ID unique pour tracking/révocation future
+      },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "2h" } // ✅ 2 heures au lieu de 7 jours
     );
 
     const userWithoutPassword = {
       id: user.id,
       email: user.email,
       name: user.name,
+      role: user.role, // ✅ Renvoyer le rôle au frontend
     };
 
     res.json({

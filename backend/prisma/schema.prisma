@@ -20,6 +20,7 @@ model User {
   email     String    @unique
   password  String
   name      String
+  role      String    @default("user") // ✅ AJOUTÉ : "user" ou "admin"
   orders    Order[]
   reviews   Review[]
   createdAt DateTime  @default(now())
@@ -47,11 +48,11 @@ model Order {
   status     String      @default("pending")
   total      Float
   delivery   Delivery?
-  payment    Payment?    // 👈 relation vers Payment (ajouté)
+  payment    Payment?
   createdAt  DateTime    @default(now())
 }
 
-// 🧾 Détails des items d’une commande
+// 🧾 Détails des items d'une commande
 model OrderItem {
   id        Int      @id @default(autoincrement())
   order     Order    @relation(fields: [orderId], references: [id])
@@ -78,7 +79,7 @@ model Review {
 model Payment {
   id        Int      @id @default(autoincrement())
   order     Order    @relation(fields: [orderId], references: [id])
-  orderId   Int      @unique   // 👈 chaque commande a au max 1 paiement
+  orderId   Int      @unique
   amount    Float
   status    String   @default("processing")
   createdAt DateTime @default(now())
@@ -89,7 +90,7 @@ model Delivery {
   id          Int     @id @default(autoincrement())
   order       Order   @relation(fields: [orderId], references: [id])
   orderId     Int     @unique
-  status      String  @default("preparing") // preparing → shipping → delivered
+  status      String  @default("preparing")
   address     String?
   estimatedAt DateTime?
   updatedAt   DateTime @updatedAt

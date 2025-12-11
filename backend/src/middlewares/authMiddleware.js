@@ -1,8 +1,11 @@
 // backend/src/middlewares/authMiddleware.js
 
 const jwt = require("jsonwebtoken");
+const { PrismaClient } = require("@prisma/client");
 
-function authMiddleware(req, res, next) {
+const prisma = new PrismaClient();
+
+async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
 
   // Vérifier qu'on a bien un header "Authorization: Bearer xxx"
@@ -13,13 +16,41 @@ function authMiddleware(req, res, next) {
   const token = authHeader.split(" ")[1];
 
   try {
+    // Vérifier le token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // On ajoute l'ID utilisateur à l'objet req pour l'utiliser ensuite
-    req.userId = decoded.userId;
+    
+    // ✅ AJOUTÉ : Charger l'utilisateur complet pour avoir accès au rôle
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { 
+        id: true, 
+        email: true, 
+        name: true, 
+        role: true // ✅ Inclure le rôle
+      }
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: "Utilisateur introuvable." });
+    }
+
+    // ✅ Ajouter l'ID ET l'objet user complet à la requête
+    req.userId = user.id;
+    req.user = user; // Permet d'accéder à req.user.role dans les routes
+    
     next();
   } catch (error) {
     console.error("Erreur authMiddleware :", error);
-    return res.status(401).json({ error: "Token invalide ou expiré." });
+    
+    // ✅ Gérer les erreurs spécifiques du JWT
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: "Token expiré." });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: "Token invalide." });
+    }
+    
+    return res.status(401).json({ error: "Erreur d'authentification." });
   }
 }
 

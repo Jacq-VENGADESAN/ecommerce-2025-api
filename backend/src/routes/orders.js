@@ -11,6 +11,7 @@ const prisma = new PrismaClient();
  * Créer une commande
  * - Vérifie que les produits existent
  * - Vérifie le stock
+ * - ✅ VALIDE LES PRIX CÔTÉ BACKEND (ne fait pas confiance au client)
  * - Calcule le total
  * - Crée Order + OrderItems
  * - Décrémente le stock
@@ -20,10 +21,26 @@ router.post("/", authMiddleware, async (req, res) => {
   try {
     const { items } = req.body;
 
+    // Validation de base
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "La commande doit contenir au moins un produit." });
+      return res.status(400).json({ 
+        error: "La commande doit contenir au moins un produit." 
+      });
+    }
+
+    // ✅ AJOUTÉ : Validation des quantités
+    for (const item of items) {
+      if (!item.productId || !item.quantity) {
+        return res.status(400).json({ 
+          error: "Chaque item doit avoir un productId et une quantity." 
+        });
+      }
+
+      if (item.quantity < 1 || item.quantity > 100) {
+        return res.status(400).json({ 
+          error: "La quantité doit être entre 1 et 100." 
+        });
+      }
     }
 
     const productIds = items.map((i) => i.productId);
@@ -34,29 +51,42 @@ router.post("/", authMiddleware, async (req, res) => {
     });
 
     if (products.length !== productIds.length) {
-      return res
-        .status(400)
-        .json({ error: "Certains produits n'existent pas." });
+      return res.status(400).json({ 
+        error: "Certains produits n'existent pas." 
+      });
     }
 
-    // Vérifier le stock et calculer le total
+    // ✅ CRITIQUE : Valider le stock ET les prix côté backend
     let total = 0;
+    const validatedItems = [];
 
     for (const item of items) {
       const product = products.find((p) => p.id === item.productId);
+      
       if (!product) {
-        return res
-          .status(400)
-          .json({ error: `Produit ${item.productId} introuvable.` });
-      }
-
-      if (product.stock < item.quantity) {
-        return res.status(400).json({
-          error: `Stock insuffisant pour le produit ${product.name}.`,
+        return res.status(400).json({ 
+          error: `Produit ${item.productId} introuvable.` 
         });
       }
 
-      total += product.price * item.quantity;
+      // Vérifier le stock
+      if (product.stock < item.quantity) {
+        return res.status(400).json({
+          error: `Stock insuffisant pour le produit "${product.name}". ` +
+                 `Disponible : ${product.stock}, demandé : ${item.quantity}`,
+        });
+      }
+
+      // ✅ SÉCURITÉ : Utiliser TOUJOURS le prix de la base de données
+      // Ne JAMAIS faire confiance au prix envoyé par le client
+      const itemTotal = product.price * item.quantity;
+      total += itemTotal;
+
+      validatedItems.push({
+        productId: product.id,
+        quantity: item.quantity,
+        price: product.price, // ✅ Prix validé depuis la base
+      });
     }
 
     // Transaction : créer la commande + items + paiement + livraison + décrémenter le stock
@@ -65,19 +95,15 @@ router.post("/", authMiddleware, async (req, res) => {
         data: {
           userId: req.userId,
           status: "pending",
-          total,
+          total, // ✅ Total calculé côté serveur
           items: {
-            create: items.map((item) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              price: products.find((p) => p.id === item.productId).price,
-            })),
+            create: validatedItems, // ✅ Données validées
           },
         },
       });
 
       // Décrémenter le stock de chaque produit
-      for (const item of items) {
+      for (const item of validatedItems) {
         await tx.product.update({
           where: { id: item.productId },
           data: {
@@ -92,7 +118,7 @@ router.post("/", authMiddleware, async (req, res) => {
       await tx.payment.create({
         data: {
           orderId: createdOrder.id,
-          amount: total,
+          amount: total, // ✅ Montant validé
           status: "processing",
         },
       });
@@ -119,6 +145,14 @@ router.post("/", authMiddleware, async (req, res) => {
     res.status(201).json(order);
   } catch (error) {
     console.error("Erreur POST /orders :", error);
+    
+    // ✅ AJOUTÉ : Gestion d'erreur plus granulaire
+    if (error.code === 'P2025') {
+      return res.status(404).json({ 
+        error: "Ressource non trouvée lors de la transaction." 
+      });
+    }
+    
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -165,6 +199,7 @@ router.patch("/:id/cancel", authMiddleware, async (req, res) => {
       return res.status(404).json({ error: "Commande introuvable." });
     }
 
+    // ✅ SÉCURITÉ : Vérifier que l'utilisateur est propriétaire de la commande
     if (order.userId !== req.userId) {
       return res.status(403).json({ error: "Accès non autorisé." });
     }
