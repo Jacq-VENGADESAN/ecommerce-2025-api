@@ -9,6 +9,7 @@ const helmet = require("helmet");
 const setupSwagger = require("./swagger");
 const prisma = require("./prisma");
 const { validateId, requireString, requireNumber, requireEmail } = require("./utils/validation");
+const applyGraphQL = require("./graphql");
 
 const recommendationsRouter = require("./routes/recommendations");
 const geoRouter = require("./routes/geo");
@@ -300,7 +301,16 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Backend demarre sur http://localhost:${PORT}`);
-  console.log(`Documentation Swagger : http://localhost:${PORT}/api-docs`);
+async function start() {
+  await applyGraphQL(app);
+  app.listen(PORT, () => {
+    console.log(`Backend demarre sur http://localhost:${PORT}`);
+    console.log(`Documentation Swagger : http://localhost:${PORT}/api-docs`);
+    console.log(`GraphQL : http://localhost:${PORT}/graphql`);
+  });
+}
+
+start().catch((err) => {
+  console.error("Erreur au démarrage :", err);
+  process.exit(1);
 });
